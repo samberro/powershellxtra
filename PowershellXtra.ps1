@@ -222,6 +222,7 @@ function Update-TabTitle {
 # --- Prompt Function ---
 
 function prompt {
+
     $currentPath = $PWD.Path
     $global:XtraState.ActiveCommand = $null
     $global:XtraState.CurrentPath = $currentPath
@@ -274,14 +275,15 @@ function prompt {
 
     # 4. Render Prompt
     $global:LastPromptPath = $currentPath
-    $venvIndicator = if ($env:VIRTUAL_ENV) { "($(Split-Path $env:VIRTUAL_ENV -Leaf)) " } else { "" }
-    
-    Write-Host "" # New line
-    if ($venvIndicator) { Write-Host -NoNewline $venvIndicator -ForegroundColor Cyan }
-    Write-Host -NoNewline "PS " -ForegroundColor Green
-    Write-Host -NoNewline $currentPath -ForegroundColor Yellow
-    Write-Host -NoNewline "> "
-    
+    if( -not (Test-Path -Path Function:_OLD_VIRTUAL_PROMPT)) {
+        $venvIndicator = if ($env:VIRTUAL_ENV) { "($(Split-Path $env:VIRTUAL_ENV -Leaf)) " } else { "" }
+        
+        Write-Host "" # New line
+        if ($venvIndicator) { Write-Host -NoNewline $venvIndicator -ForegroundColor Cyan }
+        Write-Host -NoNewline "PS " -ForegroundColor Green
+        Write-Host -NoNewline $currentPath -ForegroundColor Yellow
+        Write-Host -NoNewline "> "
+    }    
     return ""
 }
 
