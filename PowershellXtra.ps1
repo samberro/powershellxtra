@@ -130,11 +130,21 @@ function cd {
             $searchRoots = $global:CD_SearchRoots
 
             $escapedPath = [Regex]::Escape($Path)
+            $globRegex = $escapedPath -replace '\\\*', '.*' -replace '\\\?', '.'
+            
+            $isValidRegex = $true
+            try { [regex]$Path | Out-Null } catch { $isValidRegex = $false }
+
+            $searchTerms = @($escapedPath)
+            if ($globRegex -ne $escapedPath) { $searchTerms += $globRegex }
+            if ($isValidRegex -and $Path -ne $escapedPath) { $searchTerms += $Path }
+            $combinedTerm = "(?:" + ($searchTerms -join "|") + ")"
+
             # Conditional anchoring based on prefix-only preference
             $pattern = if ($global:CD_MatchPrefixOnly) {
-                "(?:cd|PS)\s+(['""]?[^'""\s]*(?:\\|/|^)$escapedPath.*?)(?:>?\\?)$"
+                "(?:cd|PS)\s+(['""]?[^'""\s]*(?:\\|/|^)$combinedTerm.*?)(?:>?\\?)$"
             } else {
-                "(?:cd|PS)\s+(['""]?[^'""\s]*$escapedPath.*?)(?:>?\\?)$"
+                "(?:cd|PS)\s+(['""]?[^'""\s]*$combinedTerm.*?)(?:>?\\?)$"
             }
 
             foreach ($line in $history) {
@@ -148,10 +158,20 @@ function cd {
                         
                         $segments = $resolvedPath -split '[\\/]'
                         for ($i = 0; $i -lt $segments.Count; $i++) {
-                            $matchesTarget = if ($global:CD_MatchPrefixOnly) {
-                                $segments[$i].StartsWith($Path, [System.StringComparison]::CurrentCultureIgnoreCase)
+                            $pathSegmentsCount = ($Path -split '[\\/]' | Where-Object { $_ }).Count
+                            if ($pathSegmentsCount -eq 0) { $pathSegmentsCount = 1 }
+                            $startIdx = [Math]::Max(0, $i - $pathSegmentsCount + 1)
+                            $targetString = $segments[$startIdx..$i] -join "\"
+
+                            $matchesTarget = $false
+                            if ($global:CD_MatchPrefixOnly) {
+                                if ($targetString -match "^$combinedTerm") { $matchesTarget = $true }
                             } else {
-                                $segments[$i].IndexOf($Path, [System.StringComparison]::CurrentCultureIgnoreCase) -ge 0
+                                if ($targetString -match $combinedTerm) { $matchesTarget = $true }
+                            }
+                            if (-not $matchesTarget) {
+                                $likeFilter = if ($global:CD_MatchPrefixOnly) { "$Path*" } else { "*$Path*" }
+                                if ($targetString -like $likeFilter) { $matchesTarget = $true }
                             }
 
                             if ($matchesTarget) {
