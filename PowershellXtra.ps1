@@ -435,4 +435,4 @@ function Monitor-Resources {
 
 Set-Alias mr Monitor-Resources
 
-Import-Module HardwareMonitor -Force
+Import-Module (Join-Path $PSScriptRoot "HardwareMonitor.psm1") -Force
