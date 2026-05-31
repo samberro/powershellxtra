@@ -356,9 +356,9 @@ function Send-HardwareOverlayCommand {
         throw "Could not send '$Command' to overlay on pipe '$pipeName'. $($_.Exception.Message)"
     }
     finally {
-        if ($reader) { $reader.Dispose() }
-        if ($writer) { $writer.Dispose() }
-        if ($client) { $client.Dispose() }
+        try { if ($reader) { $reader.Dispose() } } catch {}
+        try { if ($writer) { $writer.Dispose() } } catch {}
+        try { if ($client) { $client.Dispose() } } catch {}
     }
 }
 
@@ -733,10 +733,78 @@ public static class Win32HardwareOverlayNative {
         [void][Win32HardwareOverlayNative]::SetWindowLong($hwnd, [Win32HardwareOverlayNative]::GWL_EXSTYLE, $style)
     })
 
+    $commandQueue = [System.Collections.Concurrent.ConcurrentQueue[object]]::new()
+
+    $handleOverlayCommand = {
+        param($msg)
+
+        & $setDebug "handle $($msg.command)" "Yellow"
+
+        switch ($msg.command) {
+            'Stop' {
+                & $setDebug "stop: closing" "Red"
+                try { & $saveOverlayState } catch {}
+                $script:OverlayPipeStop = $true
+                try { $timer.Stop() } catch {}
+                try {
+                    $tray.Visible = $false
+                    $tray.Dispose()
+                } catch {}
+                $window.Close()
+                return
+            }
+
+            'Move' {
+                & $setDebug "move dx=$($msg.dx) dy=$($msg.dy)" "Cyan"
+                $window.Left += [int]$msg.dx
+                $window.Top  += [int]$msg.dy
+            }
+
+            'Snap' {
+                & $setDebug "snap $($msg.edge)" "Cyan"
+                & $snapOverlay ([string]$msg.edge)
+            }
+
+            'FontDelta' {
+                & $setDebug "font $($msg.delta)" "Cyan"
+                & $applyFontDelta ([int]$msg.delta)
+            }
+
+            'Batch' {
+                & $setDebug "batch dx=$($msg.dx) dy=$($msg.dy) font=$($msg.fontDelta)" "Cyan"
+                if ([int]$msg.dx -ne 0) { $window.Left += [int]$msg.dx }
+                if ([int]$msg.dy -ne 0) { $window.Top  += [int]$msg.dy }
+                if ([int]$msg.fontDelta -ne 0) { & $applyFontDelta ([int]$msg.fontDelta) }
+            }
+
+            default {
+                & $setDebug "unknown: $($msg.command)" "Red"
+            }
+        }
+    }
+
+    $drainOverlayCommands = {
+        $queued = $null
+
+        while ($commandQueue.TryDequeue([ref]$queued)) {
+            try {
+                & $handleOverlayCommand $queued
+            }
+            catch {
+                & $setDebug "cmd err: $($_.Exception.Message)" "Red"
+            }
+            finally {
+                $queued = $null
+            }
+        }
+    }
+
     $timer = New-Object Windows.Threading.DispatcherTimer
     $timer.Interval = [TimeSpan]::FromMilliseconds($IntervalMs)
 
     $timer.Add_Tick({
+        try { & $drainOverlayCommands } catch {}
+
         try {
             $snapshot = & $script:Monitor.GetSnapshot $Url
             $cells = & $script:Monitor.Layout $snapshot
@@ -790,57 +858,6 @@ public static class Win32HardwareOverlayNative {
 
     $script:OverlayPipeStop = $false
 
-    $handleOverlayCommand = {
-        param($msg)
-
-        & $setDebug "handle $($msg.command)" "Yellow"
-
-        switch ($msg.command) {
-            'Stop' {
-                & $setDebug "stop: closing" "Red"
-                try { & $saveOverlayState } catch {}
-                $script:OverlayPipeStop = $true
-                try { $timer.Stop() } catch {}
-                try {
-                    $tray.Visible = $false
-                    $tray.Dispose()
-                } catch {}
-                $window.Close()
-                [System.Windows.Threading.Dispatcher]::CurrentDispatcher.BeginInvokeShutdown(
-                    [System.Windows.Threading.DispatcherPriority]::Background
-                )
-                return
-            }
-
-            'Move' {
-                & $setDebug "move dx=$($msg.dx) dy=$($msg.dy)" "Cyan"
-                $window.Left += [int]$msg.dx
-                $window.Top  += [int]$msg.dy
-            }
-
-            'Snap' {
-                & $setDebug "snap $($msg.edge)" "Cyan"
-                & $snapOverlay ([string]$msg.edge)
-            }
-
-            'FontDelta' {
-                & $setDebug "font $($msg.delta)" "Cyan"
-                & $applyFontDelta ([int]$msg.delta)
-            }
-
-            'Batch' {
-                & $setDebug "batch dx=$($msg.dx) dy=$($msg.dy) font=$($msg.fontDelta)" "Cyan"
-                if ([int]$msg.dx -ne 0) { $window.Left += [int]$msg.dx }
-                if ([int]$msg.dy -ne 0) { $window.Top  += [int]$msg.dy }
-                if ([int]$msg.fontDelta -ne 0) { & $applyFontDelta ([int]$msg.fontDelta) }
-            }
-
-            default {
-                & $setDebug "unknown: $($msg.command)" "Red"
-            }
-        }
-    }
-
     $pipeRunspace = [runspacefactory]::CreateRunspace()
     $pipeRunspace.ApartmentState = 'MTA'
     $pipeRunspace.ThreadOptions = 'ReuseThread'
@@ -851,7 +868,7 @@ public static class Win32HardwareOverlayNative {
     $pipeCancel = [System.Threading.CancellationTokenSource]::new()
 
     $null = $pipePs.AddScript({
-        param($pipeName, $window, $handler, $debug, $cancelToken)
+        param($pipeName, $queue, $cancelToken)
 
         while (-not $cancelToken.IsCancellationRequested) {
             $server = $null
@@ -859,10 +876,6 @@ public static class Win32HardwareOverlayNative {
             $writer = $null
 
             try {
-                $window.Dispatcher.BeginInvoke([action]{
-                    & $debug "pipe: creating"
-                }) | Out-Null
-
                 $server = [System.IO.Pipes.NamedPipeServerStream]::new(
                     $pipeName,
                     [System.IO.Pipes.PipeDirection]::InOut,
@@ -871,10 +884,6 @@ public static class Win32HardwareOverlayNative {
                     [System.IO.Pipes.PipeOptions]::Asynchronous
                 )
 
-                $window.Dispatcher.BeginInvoke([action]{
-                    & $debug "pipe: waiting"
-                }) | Out-Null
-
                 $task = $server.WaitForConnectionAsync($cancelToken)
                 $task.GetAwaiter().GetResult()
 
@@ -882,33 +891,23 @@ public static class Win32HardwareOverlayNative {
                     break
                 }
 
-                $window.Dispatcher.BeginInvoke([action]{
-                    & $debug "pipe: connected" "Lime"
-                }) | Out-Null
-
                 $reader = [System.IO.StreamReader]::new($server)
                 $writer = [System.IO.StreamWriter]::new($server)
                 $writer.AutoFlush = $true
 
                 $raw = $reader.ReadLine()
 
-                $window.Dispatcher.BeginInvoke([action]{
-                    & $debug "pipe: read"
-                }) | Out-Null
-
                 if ([string]::IsNullOrWhiteSpace($raw)) {
-                    $writer.WriteLine("EMPTY")
+                    try { $writer.WriteLine("EMPTY") } catch {}
                     continue
                 }
 
                 $msg = $raw | ConvertFrom-Json
 
-                # ACK before handling command, especially Stop.
-                $writer.WriteLine("OK")
+                # ACK before the UI thread handles the command, especially Stop.
+                try { $writer.WriteLine("OK") } catch {}
 
-                $window.Dispatcher.Invoke([action]{
-                    & $handler $msg
-                })
+                $queue.Enqueue($msg)
 
                 if ($msg.command -eq "Stop") {
                     break
@@ -918,32 +917,16 @@ public static class Win32HardwareOverlayNative {
                 break
             }
             catch {
-                $err = $_.Exception.Message
-
-                try {
-                    $window.Dispatcher.BeginInvoke([action]{
-                        & $debug "pipe err: $err" "Red"
-                    }) | Out-Null
-                } catch {}
-
                 Start-Sleep -Milliseconds 150
             }
             finally {
                 try { if ($reader) { $reader.Dispose() } } catch {}
                 try { if ($writer) { $writer.Dispose() } } catch {}
                 try { if ($server) { $server.Dispose() } } catch {}
-
-                try {
-                    $window.Dispatcher.BeginInvoke([action]{
-                        & $debug "pipe: disposed"
-                    }) | Out-Null
-                } catch {}
             }
         }
     }).AddArgument($script:HardwareOverlayPipeName).
-      AddArgument($window).
-      AddArgument($handleOverlayCommand).
-      AddArgument($setDebug).
+      AddArgument($commandQueue).
       AddArgument($pipeCancel.Token)
 
     $pipeAsync = $pipePs.BeginInvoke()
