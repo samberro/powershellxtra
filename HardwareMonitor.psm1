@@ -28,7 +28,7 @@ $script:Monitor = @{
             [object[]]$Items,
             [string]$Pattern,
             [string]$UnitPattern
-            )
+        )
 
         ($Items |
             Where-Object { $_.Text -match $Pattern -and $_.Value -match $UnitPattern } |
@@ -81,7 +81,6 @@ $script:Monitor = @{
         param($Value)
 
         if ($null -eq $Value) { return " --%" }
-
         "{0,3}%" -f [int]$Value
     }
 
@@ -89,14 +88,11 @@ $script:Monitor = @{
         param($Value)
 
         if ($null -eq $Value) { return "--" }
-
         "{0}C" -f [int]$Value
     }
 
     GetSnapshot = {
-        param(
-            [string]$Url = $script:Monitor.Url
-            )
+        param([string]$Url = $script:Monitor.Url)
 
         $data = Invoke-RestMethod $Url -TimeoutSec 2
         $items = @(& $script:Monitor.Flatten $data)
@@ -111,10 +107,8 @@ $script:Monitor = @{
         $cpuTemp   = & $script:Monitor.Num  (& $script:Monitor.GetValueByUnit $items 'CPU Package|Tctl/Tdie|Core Max|CCD' '°C|C')
         $ram       = & $script:Monitor.Num  (& $script:Monitor.GetValueByUnit $items '^Memory$' '%')
 
-        $hasShared = $shared -and $shared -gt 0.01
         $vramPct = if ($vram -and $vramTotal) { ($vram / $vramTotal) * 100 } else { 0 }
         $badShared = ($shared -gt 1) -or (($vramPct -gt 95) -and ($shared -gt 0.01))
-
         $vramText = if ($null -eq $vram) { "--" } else { "{0:N2}GB" -f $vram }
 
         if ($badShared) {
@@ -124,22 +118,16 @@ $script:Monitor = @{
         [pscustomobject]@{
             GPU        = & $script:Monitor.SafePercent $gpu
             GPUColor   = & $script:Monitor.ColorUsage $gpu
-
             VRAM       = $vramText
             VRAMColor  = if ($badShared) { 'Red' } else { 'Gray' }
-
             GTEMP      = & $script:Monitor.SafeTemp $gpuTemp
             GTEMPColor = & $script:Monitor.ColorTemp $gpuTemp
-
             CPU        = & $script:Monitor.SafePercent $cpu
             CPUColor   = & $script:Monitor.ColorUsage $cpu
-
             CTEMP      = & $script:Monitor.SafeTemp $cpuTemp
             CTEMPColor = & $script:Monitor.ColorTemp $cpuTemp
-
             RAM        = & $script:Monitor.SafePercent $ram
             RAMColor   = & $script:Monitor.ColorUsage $ram
-
             DBG        = if ($script:OverlayDebugText) { $script:OverlayDebugText } else { "idle" }
             DBGColor   = if ($script:OverlayDebugColor) { $script:OverlayDebugColor } else { "DarkGray" }
         }
@@ -156,7 +144,7 @@ $script:Monitor = @{
             [pscustomobject]@{ Title = 'CT';   Value = $Snapshot.CTEMP; Width = 5;  Color = $Snapshot.CTEMPColor }
             [pscustomobject]@{ Title = 'RAM';  Value = $Snapshot.RAM;   Width = 6;  Color = $Snapshot.RAMColor }
             [pscustomobject]@{ Title = 'DBG';  Value = $Snapshot.DBG;   Width = 30; Color = $Snapshot.DBGColor }
-            )
+        )
     }
 
     WriteCell = {
@@ -165,17 +153,11 @@ $script:Monitor = @{
             [int]$Width,
             [string]$Color = 'Gray',
             [switch]$PadValue
-            )
+        )
 
         if ($null -eq $Text) { $Text = "" }
-
-        if ($PadValue) {
-            $Text = " $Text "
-        }
-
-        if ($Text.Length -gt $Width) {
-            $Text = $Text.Substring(0, $Width)
-        }
+        if ($PadValue) { $Text = " $Text " }
+        if ($Text.Length -gt $Width) { $Text = $Text.Substring(0, $Width) }
 
         $remaining = $Width - $Text.Length
         $left = [math]::Floor($remaining / 2)
@@ -219,7 +201,7 @@ function Get-HardwareOverlayState {
         [int]$DefaultTop = 20,
         [int]$DefaultLabelFontSize = 11,
         [int]$DefaultValueFontSize = 13
-        )
+    )
 
     $state = [ordered]@{
         Left = $DefaultLeft
@@ -250,7 +232,7 @@ function Save-HardwareOverlayState {
         [int]$Top,
         [int]$LabelFontSize,
         [int]$ValueFontSize
-        )
+    )
 
     $dir = Split-Path $script:HardwareOverlayStatePath
     New-Item -ItemType Directory -Force $dir | Out-Null
@@ -260,25 +242,25 @@ function Save-HardwareOverlayState {
         Top = $Top
         LabelFontSize = $LabelFontSize
         ValueFontSize = $ValueFontSize
-        } | ConvertTo-Json | Set-Content -Encoding UTF8 $script:HardwareOverlayStatePath
+    } | ConvertTo-Json | Set-Content -Encoding UTF8 $script:HardwareOverlayStatePath
+}
+
+function Start-LibreHardwareMonitorIfNeeded {
+    param(
+        [string]$Url = $script:Monitor.Url,
+        [int]$WaitSeconds = 8
+    )
+
+    try {
+        Invoke-RestMethod $Url -TimeoutSec 1 | Out-Null
+        return
     }
+    catch {}
 
-    function Start-LibreHardwareMonitorIfNeeded {
-        param(
-            [string]$Url = $script:Monitor.Url,
-            [int]$WaitSeconds = 8
-            )
+    $existing = Get-Process LibreHardwareMonitor -ErrorAction SilentlyContinue
 
-        try {
-            Invoke-RestMethod $Url -TimeoutSec 1 | Out-Null
-            return
-        }
-        catch {}
-
-        $existing = Get-Process LibreHardwareMonitor -ErrorAction SilentlyContinue
-
-        if (-not $existing) {
-            $exe = Get-ChildItem `
+    if (-not $existing) {
+        $exe = Get-ChildItem `
             "$env:LOCALAPPDATA\Microsoft\WinGet\Packages",
             "$env:ProgramFiles",
             "$env:ProgramFiles(x86)" `
@@ -287,781 +269,742 @@ function Save-HardwareOverlayState {
             -ErrorAction SilentlyContinue |
             Select-Object -First 1 -ExpandProperty FullName
 
-            if (-not $exe) {
-                throw "LibreHardwareMonitor.exe not found. Install it with: winget install LibreHardwareMonitor.LibreHardwareMonitor"
-            }
-
-            Start-Process $exe -Verb RunAs | Out-Null
+        if (-not $exe) {
+            throw "LibreHardwareMonitor.exe not found. Install it with: winget install LibreHardwareMonitor.LibreHardwareMonitor"
         }
 
-        $deadline = (Get-Date).AddSeconds($WaitSeconds)
-
-        while ((Get-Date) -lt $deadline) {
-            try {
-                Invoke-RestMethod $Url -TimeoutSec 1 | Out-Null
-                return
-            }
-            catch {
-                Start-Sleep -Milliseconds 500
-            }
-        }
-
-        throw "LibreHardwareMonitor is running, but $Url is unavailable. Enable: Options → Remote Web Server"
+        Start-Process $exe -Verb RunAs | Out-Null
     }
 
-    function Send-HardwareOverlayCommand {
-        param(
-            [ValidateSet('Stop', 'Move', 'Snap', 'FontDelta', 'Batch')]
-            [string]$Command = 'Stop',
+    $deadline = (Get-Date).AddSeconds($WaitSeconds)
 
-            [int]$Dx = 0,
-            [int]$Dy = 0,
-            [int]$Delta = 0,
-            [int]$FontDelta = 0,
-
-            [ValidateSet('Left', 'Right', 'Top', 'Bottom', '')]
-            [string]$Edge = '',
-
-            [int]$TimeoutMs = 1000,
-
-            [switch]$VerboseLog
-            )
-
-        $pipeName = $script:HardwareOverlayPipeName
-        if ([string]::IsNullOrWhiteSpace($pipeName)) {
-            $pipeName = "HardwareMonitorOverlay-$env:USERNAME"
+    while ((Get-Date) -lt $deadline) {
+        try {
+            Invoke-RestMethod $Url -TimeoutSec 1 | Out-Null
+            return
         }
-
-        $payload = [pscustomobject]@{
-            command   = $Command
-            dx        = $Dx
-            dy        = $Dy
-            delta     = $Delta
-            fontDelta = $FontDelta
-            edge      = $Edge
-            } | ConvertTo-Json -Compress
-
-            $client = $null
-            $writer = $null
-            $reader = $null
-
-            try {
-                if ($VerboseLog) { Write-Host "connecting to $pipeName..." -ForegroundColor Cyan }
-
-                $client = [System.IO.Pipes.NamedPipeClientStream]::new(
-                    '.',
-                    $pipeName,
-                    [System.IO.Pipes.PipeDirection]::InOut
-                    )
-
-                $client.Connect($TimeoutMs)
-
-                if ($VerboseLog) { Write-Host "connected; sending $Command" -ForegroundColor Cyan }
-
-                $writer = [System.IO.StreamWriter]::new($client)
-                $writer.AutoFlush = $true
-                $writer.WriteLine($payload)
-
-                if ($VerboseLog) { Write-Host "sent payload: $payload" -ForegroundColor DarkGray }
-
-
-                if ($VerboseLog) { Write-Host "waiting for ack..." -ForegroundColor Cyan }
-
-                $reader = [System.IO.StreamReader]::new($client)
-                [void]$reader.ReadLine()
-
-                if ($VerboseLog) { Write-Host "ack received" -ForegroundColor Green }
-                
-            }
-            catch {
-                throw "Could not send '$Command' to overlay on pipe '$pipeName'. $($_.Exception.Message)"
-            }
-            finally {
-                if ($reader) { $reader.Dispose() }
-                if ($writer) { $writer.Dispose() }
-                if ($client) { $client.Dispose() }
-            }
+        catch {
+            Start-Sleep -Milliseconds 500
         }
+    }
 
-        function Start-HardwareOverlayControl {
-            param(
-                [int]$MoveStep = 10,
-                [int]$FontStep = 1
-                )
+    throw "LibreHardwareMonitor is running, but $Url is unavailable. Enable: Options → Remote Web Server"
+}
 
-            Write-Host "Overlay control mode" -ForegroundColor Cyan
-            Write-Host "  Arrows      move"
-            Write-Host "  Ctrl+Arrow snap edge"
-            Write-Host "  = / -       font +/-"
-            Write-Host "  q           quit control mode"
-            Write-Host "  Ctrl+q      stop overlay and quit"
-            Write-Host ""
+function Send-HardwareOverlayCommand {
+    param(
+        [ValidateSet('Stop', 'Move', 'Snap', 'FontDelta', 'Batch')]
+        [string]$Command = 'Stop',
 
-            while ($true) {
-                $dx = 0
-                $dy = 0
-                $fontDelta = 0
-                $edge = ''
-                $stop = $false
-                $quit = $false
+        [int]$Dx = 0,
+        [int]$Dy = 0,
+        [int]$Delta = 0,
+        [int]$FontDelta = 0,
 
-                do {
-                    $key = [Console]::ReadKey($true)
-                    $ctrl = ($key.Modifiers -band [ConsoleModifiers]::Control) -ne 0
+        [ValidateSet('Left', 'Right', 'Top', 'Bottom', '')]
+        [string]$Edge = '',
 
-                    if ($key.Key -eq 'Q' -and $ctrl) {
-                        $stop = $true
-                        $quit = $true
-                        break
-                    }
+        [int]$TimeoutMs = 1000,
 
-                    if ($key.Key -eq 'Q' -or $key.Key -eq 'Escape') {
-                        $quit = $true
-                        break
-                    }
+        [switch]$VerboseLog
+    )
 
-                    switch ($key.Key) {
-                        'LeftArrow' {
-                            if ($ctrl) { $edge = 'Left' }
-                            else { $dx -= $MoveStep }
-                        }
+    $pipeName = $script:HardwareOverlayPipeName
+    if ([string]::IsNullOrWhiteSpace($pipeName)) {
+        $pipeName = "HardwareMonitorOverlay-$env:USERNAME"
+    }
 
-                        'RightArrow' {
-                            if ($ctrl) { $edge = 'Right' }
-                            else { $dx += $MoveStep }
-                        }
+    $payload = [pscustomobject]@{
+        command   = $Command
+        dx        = $Dx
+        dy        = $Dy
+        delta     = $Delta
+        fontDelta = $FontDelta
+        edge      = $Edge
+    } | ConvertTo-Json -Compress
 
-                        'UpArrow' {
-                            if ($ctrl) { $edge = 'Top' }
-                            else { $dy -= $MoveStep }
-                        }
+    $client = $null
+    $writer = $null
+    $reader = $null
 
-                        'DownArrow' {
-                            if ($ctrl) { $edge = 'Bottom' }
-                            else { $dy += $MoveStep }
-                        }
+    try {
+        if ($VerboseLog) { Write-Host "connecting to $pipeName..." -ForegroundColor Cyan }
 
-                        'Add'      { $fontDelta += $FontStep }
-                        'OemPlus'  { $fontDelta += $FontStep }
-                        'Subtract' { $fontDelta -= $FontStep }
-                        'OemMinus' { $fontDelta -= $FontStep }
-                    }
-                }
-                while ([Console]::KeyAvailable)
+        $client = [System.IO.Pipes.NamedPipeClientStream]::new(
+            '.',
+            $pipeName,
+            [System.IO.Pipes.PipeDirection]::InOut
+        )
 
-                if ($stop) {
-                    Send-HardwareOverlayCommand -Command Stop -TimeoutMs 300
-                    break
-                }
+        $client.Connect($TimeoutMs)
 
-                if ($edge) {
-                    Send-HardwareOverlayCommand -Command Snap -Edge $edge
-                }
-                elseif ($dx -ne 0 -or $dy -ne 0 -or $fontDelta -ne 0) {
-                    Send-HardwareOverlayCommand `
-                    -Command Batch `
-                    -Dx $dx `
-                    -Dy $dy `
-                    -FontDelta $fontDelta
-                }
+        if ($VerboseLog) { Write-Host "connected; sending $Command" -ForegroundColor Cyan }
 
-                if ($quit) {
-                    break
-                }
+        $writer = [System.IO.StreamWriter]::new($client)
+        $writer.AutoFlush = $true
+        $writer.WriteLine($payload)
+
+        if ($VerboseLog) { Write-Host "sent payload: $payload" -ForegroundColor DarkGray }
+        if ($VerboseLog) { Write-Host "waiting for ack..." -ForegroundColor Cyan }
+
+        $reader = [System.IO.StreamReader]::new($client)
+        [void]$reader.ReadLine()
+
+        if ($VerboseLog) { Write-Host "ack received" -ForegroundColor Green }
+    }
+    catch {
+        throw "Could not send '$Command' to overlay on pipe '$pipeName'. $($_.Exception.Message)"
+    }
+    finally {
+        if ($reader) { $reader.Dispose() }
+        if ($writer) { $writer.Dispose() }
+        if ($client) { $client.Dispose() }
+    }
+}
+
+function Start-HardwareOverlayControl {
+    param(
+        [int]$MoveStep = 10,
+        [int]$FontStep = 1
+    )
+
+    Write-Host "Overlay control mode" -ForegroundColor Cyan
+    Write-Host "  Arrows      move"
+    Write-Host "  Ctrl+Arrow snap edge"
+    Write-Host "  = / -       font +/-"
+    Write-Host "  q           quit control mode"
+    Write-Host "  Ctrl+q      stop overlay and quit"
+    Write-Host ""
+
+    while ($true) {
+        $dx = 0
+        $dy = 0
+        $fontDelta = 0
+        $edge = ''
+        $stop = $false
+        $quit = $false
+
+        do {
+            $key = [Console]::ReadKey($true)
+            $ctrl = ($key.Modifiers -band [ConsoleModifiers]::Control) -ne 0
+
+            if ($key.Key -eq 'Q' -and $ctrl) {
+                $stop = $true
+                $quit = $true
+                break
+            }
+
+            if ($key.Key -eq 'Q' -or $key.Key -eq 'Escape') {
+                $quit = $true
+                break
+            }
+
+            switch ($key.Key) {
+                'LeftArrow'  { if ($ctrl) { $edge = 'Left' }   else { $dx -= $MoveStep } }
+                'RightArrow' { if ($ctrl) { $edge = 'Right' }  else { $dx += $MoveStep } }
+                'UpArrow'    { if ($ctrl) { $edge = 'Top' }    else { $dy -= $MoveStep } }
+                'DownArrow'  { if ($ctrl) { $edge = 'Bottom' } else { $dy += $MoveStep } }
+                'Add'        { $fontDelta += $FontStep }
+                'OemPlus'    { $fontDelta += $FontStep }
+                'Subtract'   { $fontDelta -= $FontStep }
+                'OemMinus'   { $fontDelta -= $FontStep }
             }
         }
+        while ([Console]::KeyAvailable)
 
-        function Start-HardwareLineMonitor {
-            param(
-                [string]$Url = $script:Monitor.Url,
-                [int]$IntervalMs = 500
-                )
+        if ($stop) {
+            Send-HardwareOverlayCommand -Command Stop -TimeoutMs 300
+            break
+        }
 
-            Start-LibreHardwareMonitorIfNeeded -Url $Url
+        if ($edge) {
+            Send-HardwareOverlayCommand -Command Snap -Edge $edge
+        }
+        elseif ($dx -ne 0 -or $dy -ne 0 -or $fontDelta -ne 0) {
+            Send-HardwareOverlayCommand -Command Batch -Dx $dx -Dy $dy -FontDelta $fontDelta
+        }
 
-            while ($true) {
-                try {
-                    $snapshot = & $script:Monitor.GetSnapshot $Url
-                    $cells = & $script:Monitor.Layout $snapshot
-                    & $script:Monitor.RenderConsoleRows $cells
-                }
-                catch {
-                    $top = [Console]::CursorTop
-                    [Console]::SetCursorPosition(0, $top)
+        if ($quit) { break }
+    }
+}
 
-                    $line = "Hardware monitor unavailable: $($_.Exception.Message)"
-                    Write-Host $line.PadRight([Console]::WindowWidth - 1) -ForegroundColor Red -NoNewline
+function Start-HardwareLineMonitor {
+    param(
+        [string]$Url = $script:Monitor.Url,
+        [int]$IntervalMs = 500
+    )
 
-                    if ([Console]::CursorTop -ne $top) {
-                        [Console]::SetCursorPosition(0, $top)
-                    }
-                }
+    Start-LibreHardwareMonitorIfNeeded -Url $Url
 
-                Start-Sleep -Milliseconds $IntervalMs
+    while ($true) {
+        try {
+            $snapshot = & $script:Monitor.GetSnapshot $Url
+            $cells = & $script:Monitor.Layout $snapshot
+            & $script:Monitor.RenderConsoleRows $cells
+        }
+        catch {
+            $top = [Console]::CursorTop
+            [Console]::SetCursorPosition(0, $top)
+
+            $line = "Hardware monitor unavailable: $($_.Exception.Message)"
+            Write-Host $line.PadRight([Console]::WindowWidth - 1) -ForegroundColor Red -NoNewline
+
+            if ([Console]::CursorTop -ne $top) {
+                [Console]::SetCursorPosition(0, $top)
             }
         }
 
-        function Start-HardwareOverlay {
-            param(
-                [string]$Url = $script:Monitor.Url,
-                [int]$IntervalMs = 500,
-                [int]$Left = 20,
-                [int]$Top = 20,
-                [int]$Opacity = 145,
-                [int]$LabelFontSize = 11,
-                [int]$ValueFontSize = 13,
-                [switch]$SafeMode,
-                [switch]$NoRelaunch
-                )
+        Start-Sleep -Milliseconds $IntervalMs
+    }
+}
 
-            if ([Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
-                if ($NoRelaunch) {
-                    throw "Start overlay with: pwsh -STA"
-                }
+function Start-HardwareOverlay {
+    param(
+        [string]$Url = $script:Monitor.Url,
+        [int]$IntervalMs = 500,
+        [int]$Left = 20,
+        [int]$Top = 20,
+        [int]$Opacity = 145,
+        [int]$LabelFontSize = 11,
+        [int]$ValueFontSize = 13,
+        [switch]$SafeMode,
+        [switch]$NoRelaunch
+    )
 
-                $safe = if ($SafeMode) { ' -SafeMode' } else { '' }
+    if ([Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
+        if ($NoRelaunch) {
+            throw "Start overlay with: pwsh -STA"
+        }
 
-                $cmd = @"
-                Import-Module HardwareMonitor -Force
-                Start-HardwareOverlay -Url '$Url' -IntervalMs $IntervalMs -Left $Left -Top $Top -Opacity $Opacity -LabelFontSize $LabelFontSize -ValueFontSize $ValueFontSize -NoRelaunch$safe
+        $safe = if ($SafeMode) { ' -SafeMode' } else { '' }
+
+        $cmd = @"
+Import-Module HardwareMonitor -Force
+Start-HardwareOverlay -Url '$Url' -IntervalMs $IntervalMs -Left $Left -Top $Top -Opacity $Opacity -LabelFontSize $LabelFontSize -ValueFontSize $ValueFontSize -NoRelaunch$safe
 "@
 
-                Start-Process pwsh `
-                -WindowStyle Hidden `
-                -ArgumentList @(
-                    '-STA',
-                    '-NoLogo',
-                    '-NoProfile',
-                    '-Command',
-                    $cmd
-                    )
+        Start-Process pwsh `
+            -WindowStyle Hidden `
+            -ArgumentList @(
+                '-STA',
+                '-NoLogo',
+                '-NoProfile',
+                '-Command',
+                $cmd
+            )
 
+        return
+    }
+
+    Start-LibreHardwareMonitorIfNeeded -Url $Url
+
+    if (-not $SafeMode) {
+        $saved = Get-HardwareOverlayState `
+            -DefaultLeft $Left `
+            -DefaultTop $Top `
+            -DefaultLabelFontSize $LabelFontSize `
+            -DefaultValueFontSize $ValueFontSize
+
+        $Left = $saved.Left
+        $Top = $saved.Top
+        $LabelFontSize = $saved.LabelFontSize
+        $ValueFontSize = $saved.ValueFontSize
+    }
+
+    Add-Type -AssemblyName PresentationFramework
+    Add-Type -AssemblyName PresentationCore
+    Add-Type -AssemblyName WindowsBase
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Drawing
+
+    if (-not ('Win32HardwareOverlayNative' -as [type])) {
+        Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class Win32HardwareOverlayNative {
+    public const int GWL_EXSTYLE = -20;
+    public const int WS_EX_TRANSPARENT = 0x00000020;
+    public const int WS_EX_LAYERED = 0x00080000;
+    public const int WS_EX_TOOLWINDOW = 0x00000080;
+    public const int WS_EX_NOACTIVATE = 0x08000000;
+
+    [DllImport("user32.dll")]
+    public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll")]
+    public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+}
+"@
+    }
+
+    $newTextBlock = {
+        param(
+            [string]$Text = "--",
+            [int]$FontSize = 13,
+            [string]$Color = "Gray",
+            [string]$Weight = "Bold"
+        )
+
+        $tb = New-Object Windows.Controls.TextBlock
+        $tb.Text = $Text
+        $tb.Foreground = $Color
+        $tb.FontFamily = "Cascadia Mono"
+        $tb.FontSize = $FontSize
+        $tb.FontWeight = $Weight
+        $tb.HorizontalAlignment = "Center"
+        $tb.VerticalAlignment = "Center"
+        $tb.TextAlignment = "Center"
+        $tb.TextWrapping = "NoWrap"
+        $tb.Margin = "0"
+        $tb
+    }
+
+    $setScaledPadding = {
+        param($Control)
+
+        $padX = [Math]::Max(2, [int]($Control.FontSize * 0.35))
+        $padY = [Math]::Max(0, [int]($Control.FontSize * 0.08))
+        $Control.Padding = "$padX,$padY,$padX,$padY"
+    }
+
+    try {
+        $initialSnapshot = & $script:Monitor.GetSnapshot $Url
+        $initialCells = & $script:Monitor.Layout $initialSnapshot
+    }
+    catch {
+        throw "Could not read LibreHardwareMonitor data from $Url. Is LibreHardwareMonitor Remote Web Server enabled?"
+    }
+
+    $window = New-Object Windows.Window
+    $window.WindowStyle = "None"
+    $window.AllowsTransparency = $true
+    $window.Background = [Windows.Media.Brushes]::Transparent
+    $window.Topmost = $true
+    $window.ShowInTaskbar = $false
+    $window.ResizeMode = "NoResize"
+    $window.SizeToContent = "WidthAndHeight"
+    $window.MinWidth = 0
+    $window.MinHeight = 0
+    $window.Left = $Left
+    $window.Top = $Top
+
+    $panel = New-Object Windows.Controls.Border
+    $panel.Background = New-Object Windows.Media.SolidColorBrush ([Windows.Media.Color]::FromArgb($Opacity, 15, 15, 15))
+    $panel.CornerRadius = 10
+    $panel.Padding = "10,5,10,5"
+
+    $grid = New-Object Windows.Controls.Grid
+    $grid.HorizontalAlignment = "Center"
+    $grid.VerticalAlignment = "Center"
+
+    $panel.Child = $grid
+    $window.Content = $panel
+
+    $grid.RowDefinitions.Add((New-Object Windows.Controls.RowDefinition)) | Out-Null
+    $grid.RowDefinitions.Add((New-Object Windows.Controls.RowDefinition)) | Out-Null
+
+    $labels = @{}
+    $values = @{}
+
+    for ($i = 0; $i -lt $initialCells.Count; $i++) {
+        $col = New-Object Windows.Controls.ColumnDefinition
+        $col.Width = [Windows.GridLength]::Auto
+        $grid.ColumnDefinitions.Add($col)
+    }
+
+    for ($i = 0; $i -lt $initialCells.Count; $i++) {
+        $cell = $initialCells[$i]
+        $label = & $newTextBlock $cell.Title $LabelFontSize "Gray" "SemiBold"
+        & $setScaledPadding $label
+        [Windows.Controls.Grid]::SetColumn($label, $i)
+        [Windows.Controls.Grid]::SetRow($label, 0)
+        $grid.Children.Add($label) | Out-Null
+        $labels[$cell.Title] = $label
+    }
+
+    for ($i = 0; $i -lt $initialCells.Count; $i++) {
+        $cell = $initialCells[$i]
+        $value = & $newTextBlock $cell.Value $ValueFontSize $cell.Color "Bold"
+        & $setScaledPadding $value
+        [Windows.Controls.Grid]::SetColumn($value, $i)
+        [Windows.Controls.Grid]::SetRow($value, 1)
+        $grid.Children.Add($value) | Out-Null
+        $values[$cell.Title] = $value
+    }
+
+    $setDebug = {
+        param(
+            [string]$Text,
+            [string]$Color = "Cyan"
+        )
+
+        $script:OverlayDebugText = "{0:HH:mm:ss.fff} {1}" -f (Get-Date), $Text
+        $script:OverlayDebugColor = $Color
+
+        if ($values -and $values.ContainsKey("DBG")) {
+            $values["DBG"].Text = $script:OverlayDebugText
+            $values["DBG"].Foreground = $Color
+        }
+    }
+
+    & $setDebug "overlay started" "Lime"
+
+    $saveOverlayState = {
+        try {
+            $firstLabel = @($labels.Values | Select-Object -First 1)[0]
+            $firstValue = @($values.Values | Select-Object -First 1)[0]
+
+            if ($firstLabel -and $firstValue) {
+                Save-HardwareOverlayState `
+                    -Left ([int]$window.Left) `
+                    -Top ([int]$window.Top) `
+                    -LabelFontSize ([int]$firstLabel.FontSize) `
+                    -ValueFontSize ([int]$firstValue.FontSize)
+            }
+        }
+        catch {}
+    }
+
+    $applyFontDelta = {
+        param([int]$Delta)
+
+        if ($Delta -eq 0) { return }
+
+        foreach ($label in $labels.Values) {
+            $label.FontSize = [Math]::Max(6, $label.FontSize + $Delta)
+            & $setScaledPadding $label
+        }
+
+        foreach ($value in $values.Values) {
+            $value.FontSize = [Math]::Max(6, $value.FontSize + $Delta)
+            & $setScaledPadding $value
+        }
+    }
+
+    $snapOverlay = {
+        param([string]$Edge)
+
+        $source = [System.Windows.PresentationSource]::FromVisual($window)
+        $scaleX = 1.0
+        $scaleY = 1.0
+
+        if ($source -and $source.CompositionTarget) {
+            $scaleX = $source.CompositionTarget.TransformToDevice.M11
+            $scaleY = $source.CompositionTarget.TransformToDevice.M22
+        }
+
+        $centerPhysicalX = [int](($window.Left + ($window.ActualWidth / 2)) * $scaleX)
+        $centerPhysicalY = [int](($window.Top + ($window.ActualHeight / 2)) * $scaleY)
+
+        $screen = [System.Windows.Forms.Screen]::FromPoint(
+            [System.Drawing.Point]::new($centerPhysicalX, $centerPhysicalY)
+        ).WorkingArea
+
+        $left   = $screen.Left   / $scaleX
+        $right  = $screen.Right  / $scaleX
+        $top    = $screen.Top    / $scaleY
+        $bottom = $screen.Bottom / $scaleY
+
+        $w = if ($window.ActualWidth -gt 0) { $window.ActualWidth } else { $window.Width }
+        $h = if ($window.ActualHeight -gt 0) { $window.ActualHeight } else { $window.Height }
+
+        $targetLeft = [double]$window.Left
+        $targetTop  = [double]$window.Top
+
+        switch ($Edge) {
+            'Left'   { $targetLeft = $left }
+            'Right'  { $targetLeft = $right - $w }
+            'Top'    { $targetTop  = $top }
+            'Bottom' { $targetTop  = $bottom - $h }
+        }
+
+        $targetLeft = [Math]::Max($left, [Math]::Min($targetLeft, $right - $w))
+        $targetTop  = [Math]::Max($top,  [Math]::Min($targetTop,  $bottom - $h))
+
+        $window.Left = $targetLeft
+        $window.Top  = $targetTop
+    }
+
+    $window.Add_SourceInitialized({
+        $hwnd = (New-Object Windows.Interop.WindowInteropHelper $window).Handle
+        $style = [Win32HardwareOverlayNative]::GetWindowLong($hwnd, [Win32HardwareOverlayNative]::GWL_EXSTYLE)
+        $style = $style -bor [Win32HardwareOverlayNative]::WS_EX_LAYERED -bor [Win32HardwareOverlayNative]::WS_EX_TRANSPARENT -bor [Win32HardwareOverlayNative]::WS_EX_TOOLWINDOW -bor [Win32HardwareOverlayNative]::WS_EX_NOACTIVATE
+        [void][Win32HardwareOverlayNative]::SetWindowLong($hwnd, [Win32HardwareOverlayNative]::GWL_EXSTYLE, $style)
+    })
+
+    $timer = New-Object Windows.Threading.DispatcherTimer
+    $timer.Interval = [TimeSpan]::FromMilliseconds($IntervalMs)
+
+    $timer.Add_Tick({
+        try {
+            $snapshot = & $script:Monitor.GetSnapshot $Url
+            $cells = & $script:Monitor.Layout $snapshot
+
+            foreach ($cell in $cells) {
+                if ($values.ContainsKey($cell.Title)) {
+                    $values[$cell.Title].Text = $cell.Value
+                    $values[$cell.Title].Foreground = $cell.Color
+                }
+            }
+        }
+        catch {
+            foreach ($key in $values.Keys) {
+                $values[$key].Text = "--"
+                $values[$key].Foreground = "Red"
+            }
+        }
+    })
+
+    $tray = New-Object System.Windows.Forms.NotifyIcon
+    $tray.Text = "Hardware Overlay"
+    $tray.Icon = [System.Drawing.SystemIcons]::Application
+    $tray.Visible = $true
+
+    $menu = New-Object System.Windows.Forms.ContextMenuStrip
+    $exitItem = New-Object System.Windows.Forms.ToolStripMenuItem
+    $exitItem.Text = "Exit"
+
+    $exitItem.Add_Click({
+        try { & $saveOverlayState } catch {}
+        try { $timer.Stop() } catch {}
+        try {
+            $tray.Visible = $false
+            $tray.Dispose()
+        } catch {}
+        $window.Close()
+    })
+
+    [void]$menu.Items.Add($exitItem)
+    $tray.ContextMenuStrip = $menu
+
+    $tray.Add_DoubleClick({
+        try { & $saveOverlayState } catch {}
+        try { $timer.Stop() } catch {}
+        try {
+            $tray.Visible = $false
+            $tray.Dispose()
+        } catch {}
+        $window.Close()
+    })
+
+    $script:OverlayPipeStop = $false
+
+    $handleOverlayCommand = {
+        param($msg)
+
+        & $setDebug "handle $($msg.command)" "Yellow"
+
+        switch ($msg.command) {
+            'Stop' {
+                & $setDebug "stop: closing" "Red"
+                try { & $saveOverlayState } catch {}
+                $script:OverlayPipeStop = $true
+                try { $timer.Stop() } catch {}
+                try {
+                    $tray.Visible = $false
+                    $tray.Dispose()
+                } catch {}
+                $window.Close()
+                [System.Windows.Threading.Dispatcher]::CurrentDispatcher.BeginInvokeShutdown(
+                    [System.Windows.Threading.DispatcherPriority]::Background
+                )
                 return
             }
 
-            Start-LibreHardwareMonitorIfNeeded -Url $Url
-
-            if (-not $SafeMode) {
-                $saved = Get-HardwareOverlayState `
-                -DefaultLeft $Left `
-                -DefaultTop $Top `
-                -DefaultLabelFontSize $LabelFontSize `
-                -DefaultValueFontSize $ValueFontSize
-
-                $Left = $saved.Left
-                $Top = $saved.Top
-                $LabelFontSize = $saved.LabelFontSize
-                $ValueFontSize = $saved.ValueFontSize
+            'Move' {
+                & $setDebug "move dx=$($msg.dx) dy=$($msg.dy)" "Cyan"
+                $window.Left += [int]$msg.dx
+                $window.Top  += [int]$msg.dy
             }
 
-            Add-Type -AssemblyName PresentationFramework
-            Add-Type -AssemblyName PresentationCore
-            Add-Type -AssemblyName WindowsBase
-            Add-Type -AssemblyName System.Windows.Forms
-            Add-Type -AssemblyName System.Drawing
-
-            if (-not ('Win32HardwareOverlayNative' -as [type])) {
-                Add-Type @"
-                using System;
-                using System.Runtime.InteropServices;
-
-                public static class Win32HardwareOverlayNative {
-                    public const int GWL_EXSTYLE = -20;
-                    public const int WS_EX_TRANSPARENT = 0x00000020;
-                    public const int WS_EX_LAYERED = 0x00080000;
-                    public const int WS_EX_TOOLWINDOW = 0x00000080;
-                    public const int WS_EX_NOACTIVATE = 0x08000000;
-
-                    [DllImport("user32.dll")]
-                    public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
-
-                    [DllImport("user32.dll")]
-                    public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
-                }
-"@
+            'Snap' {
+                & $setDebug "snap $($msg.edge)" "Cyan"
+                & $snapOverlay ([string]$msg.edge)
             }
 
-            $newTextBlock = {
-                param(
-                    [string]$Text = "--",
-                    [int]$FontSize = 13,
-                    [string]$Color = "Gray",
-                    [string]$Weight = "Bold"
-                    )
-
-                $tb = New-Object Windows.Controls.TextBlock
-                $tb.Text = $Text
-                $tb.Foreground = $Color
-                $tb.FontFamily = "Cascadia Mono"
-                $tb.FontSize = $FontSize
-                $tb.FontWeight = $Weight
-                $tb.HorizontalAlignment = "Center"
-                $tb.VerticalAlignment = "Center"
-                $tb.TextAlignment = "Center"
-                $tb.TextWrapping = "NoWrap"
-                $tb.Margin = "0"
-                $tb
+            'FontDelta' {
+                & $setDebug "font $($msg.delta)" "Cyan"
+                & $applyFontDelta ([int]$msg.delta)
             }
 
-            $setScaledPadding = {
-                param($Control)
-
-                $padX = [Math]::Max(2, [int]($Control.FontSize * 0.35))
-                $padY = [Math]::Max(0, [int]($Control.FontSize * 0.08))
-                $Control.Padding = "$padX,$padY,$padX,$padY"
+            'Batch' {
+                & $setDebug "batch dx=$($msg.dx) dy=$($msg.dy) font=$($msg.fontDelta)" "Cyan"
+                if ([int]$msg.dx -ne 0) { $window.Left += [int]$msg.dx }
+                if ([int]$msg.dy -ne 0) { $window.Top  += [int]$msg.dy }
+                if ([int]$msg.fontDelta -ne 0) { & $applyFontDelta ([int]$msg.fontDelta) }
             }
+
+            default {
+                & $setDebug "unknown: $($msg.command)" "Red"
+            }
+        }
+    }
+
+    $pipeRunspace = [runspacefactory]::CreateRunspace()
+    $pipeRunspace.ApartmentState = 'MTA'
+    $pipeRunspace.ThreadOptions = 'ReuseThread'
+    $pipeRunspace.Open()
+
+    $pipePs = [powershell]::Create()
+    $pipePs.Runspace = $pipeRunspace
+    $pipeCancel = [System.Threading.CancellationTokenSource]::new()
+
+    $null = $pipePs.AddScript({
+        param($pipeName, $window, $handler, $debug, $cancelToken)
+
+        while (-not $cancelToken.IsCancellationRequested) {
+            $server = $null
+            $reader = $null
+            $writer = $null
 
             try {
-                $initialSnapshot = & $script:Monitor.GetSnapshot $Url
-                $initialCells = & $script:Monitor.Layout $initialSnapshot
+                $window.Dispatcher.BeginInvoke([action]{
+                    & $debug "pipe: creating"
+                }) | Out-Null
+
+                $server = [System.IO.Pipes.NamedPipeServerStream]::new(
+                    $pipeName,
+                    [System.IO.Pipes.PipeDirection]::InOut,
+                    1,
+                    [System.IO.Pipes.PipeTransmissionMode]::Byte,
+                    [System.IO.Pipes.PipeOptions]::Asynchronous
+                )
+
+                $window.Dispatcher.BeginInvoke([action]{
+                    & $debug "pipe: waiting"
+                }) | Out-Null
+
+                $task = $server.WaitForConnectionAsync($cancelToken)
+                $task.GetAwaiter().GetResult()
+
+                if ($cancelToken.IsCancellationRequested) {
+                    break
+                }
+
+                $window.Dispatcher.BeginInvoke([action]{
+                    & $debug "pipe: connected" "Lime"
+                }) | Out-Null
+
+                $reader = [System.IO.StreamReader]::new($server)
+                $writer = [System.IO.StreamWriter]::new($server)
+                $writer.AutoFlush = $true
+
+                $raw = $reader.ReadLine()
+
+                $window.Dispatcher.BeginInvoke([action]{
+                    & $debug "pipe: read"
+                }) | Out-Null
+
+                if ([string]::IsNullOrWhiteSpace($raw)) {
+                    $writer.WriteLine("EMPTY")
+                    continue
+                }
+
+                $msg = $raw | ConvertFrom-Json
+
+                # ACK before handling command, especially Stop.
+                $writer.WriteLine("OK")
+
+                $window.Dispatcher.Invoke([action]{
+                    & $handler $msg
+                })
+
+                if ($msg.command -eq "Stop") {
+                    break
+                }
+            }
+            catch [System.OperationCanceledException] {
+                break
             }
             catch {
-                throw "Could not read LibreHardwareMonitor data from $Url. Is LibreHardwareMonitor Remote Web Server enabled?"
-            }
-
-            $window = New-Object Windows.Window
-            $window.WindowStyle = "None"
-            $window.AllowsTransparency = $true
-            $window.Background = [Windows.Media.Brushes]::Transparent
-            $window.Topmost = $true
-            $window.ShowInTaskbar = $false
-            $window.ResizeMode = "NoResize"
-            $window.SizeToContent = "WidthAndHeight"
-            $window.MinWidth = 0
-            $window.MinHeight = 0
-            $window.Left = $Left
-            $window.Top = $Top
-
-            $panel = New-Object Windows.Controls.Border
-            $panel.Background = New-Object Windows.Media.SolidColorBrush ([Windows.Media.Color]::FromArgb($Opacity, 15, 15, 15))
-            $panel.CornerRadius = 10
-            $panel.Padding = "10,5,10,5"
-
-            $grid = New-Object Windows.Controls.Grid
-            $grid.HorizontalAlignment = "Center"
-            $grid.VerticalAlignment = "Center"
-
-            $panel.Child = $grid
-            $window.Content = $panel
-
-            $grid.RowDefinitions.Add((New-Object Windows.Controls.RowDefinition)) | Out-Null
-            $grid.RowDefinitions.Add((New-Object Windows.Controls.RowDefinition)) | Out-Null
-
-            $labels = @{}
-            $values = @{}
-
-            for ($i = 0; $i -lt $initialCells.Count; $i++) {
-                $col = New-Object Windows.Controls.ColumnDefinition
-                $col.Width = [Windows.GridLength]::Auto
-                $grid.ColumnDefinitions.Add($col)
-            }
-
-            for ($i = 0; $i -lt $initialCells.Count; $i++) {
-                $cell = $initialCells[$i]
-
-                $label = & $newTextBlock $cell.Title $LabelFontSize "Gray" "SemiBold"
-                & $setScaledPadding $label
-
-                [Windows.Controls.Grid]::SetColumn($label, $i)
-                [Windows.Controls.Grid]::SetRow($label, 0)
-                $grid.Children.Add($label) | Out-Null
-                $labels[$cell.Title] = $label
-            }
-
-            for ($i = 0; $i -lt $initialCells.Count; $i++) {
-                $cell = $initialCells[$i]
-
-                $value = & $newTextBlock $cell.Value $ValueFontSize $cell.Color "Bold"
-                & $setScaledPadding $value
-
-                [Windows.Controls.Grid]::SetColumn($value, $i)
-                [Windows.Controls.Grid]::SetRow($value, 1)
-                $grid.Children.Add($value) | Out-Null
-                $values[$cell.Title] = $value
-            }
-
-            $setDebug = {
-                param(
-                    [string]$Text,
-                    [string]$Color = "Cyan"
-                    )
-
-                $script:OverlayDebugText = "{0:HH:mm:ss.fff} {1}" -f (Get-Date), $Text
-                $script:OverlayDebugColor = $Color
-
-                if ($values -and $values.ContainsKey("DBG")) {
-                    $values["DBG"].Text = $script:OverlayDebugText
-                    $values["DBG"].Foreground = $Color
-                }
-            }
-
-            & $setDebug "overlay started" "Lime"
-
-            $saveOverlayState = {
-                try {
-                    $firstLabel = @($labels.Values | Select-Object -First 1)[0]
-                    $firstValue = @($values.Values | Select-Object -First 1)[0]
-
-                    if ($firstLabel -and $firstValue) {
-                        Save-HardwareOverlayState `
-                        -Left ([int]$window.Left) `
-                        -Top ([int]$window.Top) `
-                        -LabelFontSize ([int]$firstLabel.FontSize) `
-                        -ValueFontSize ([int]$firstValue.FontSize)
-                    }
-                }
-                catch {}
-            }
-
-            $applyFontDelta = {
-                param([int]$Delta)
-
-                if ($Delta -eq 0) { return }
-
-                foreach ($label in $labels.Values) {
-                    $label.FontSize = [Math]::Max(6, $label.FontSize + $Delta)
-                    & $setScaledPadding $label
-                }
-
-                foreach ($value in $values.Values) {
-                    $value.FontSize = [Math]::Max(6, $value.FontSize + $Delta)
-                    & $setScaledPadding $value
-                }
-            }
-
-            $snapOverlay = {
-                param([string]$Edge)
-
-                $source = [System.Windows.PresentationSource]::FromVisual($window)
-
-                $scaleX = 1.0
-                $scaleY = 1.0
-
-                if ($source -and $source.CompositionTarget) {
-                    $scaleX = $source.CompositionTarget.TransformToDevice.M11
-                    $scaleY = $source.CompositionTarget.TransformToDevice.M22
-                }
-
-                $centerPhysicalX = [int](($window.Left + ($window.ActualWidth / 2)) * $scaleX)
-                $centerPhysicalY = [int](($window.Top + ($window.ActualHeight / 2)) * $scaleY)
-
-                $screen = [System.Windows.Forms.Screen]::FromPoint(
-                    [System.Drawing.Point]::new($centerPhysicalX, $centerPhysicalY)
-                    ).WorkingArea
-
-                $left   = $screen.Left   / $scaleX
-                $right  = $screen.Right  / $scaleX
-                $top    = $screen.Top    / $scaleY
-                $bottom = $screen.Bottom / $scaleY
-
-                $w = if ($window.ActualWidth -gt 0) { $window.ActualWidth } else { $window.Width }
-                $h = if ($window.ActualHeight -gt 0) { $window.ActualHeight } else { $window.Height }
-
-                $targetLeft = [double]$window.Left
-                $targetTop  = [double]$window.Top
-
-                switch ($Edge) {
-                    'Left'   { $targetLeft = $left }
-                    'Right'  { $targetLeft = $right - $w }
-                    'Top'    { $targetTop  = $top }
-                    'Bottom' { $targetTop  = $bottom - $h }
-                }
-
-                $targetLeft = [Math]::Max($left, [Math]::Min($targetLeft, $right - $w))
-                $targetTop  = [Math]::Max($top,  [Math]::Min($targetTop,  $bottom - $h))
-
-                $window.Left = $targetLeft
-                $window.Top  = $targetTop
-            }
-
-            $window.Add_SourceInitialized({
-                $hwnd = (New-Object Windows.Interop.WindowInteropHelper $window).Handle
-                $style = [Win32HardwareOverlayNative]::GetWindowLong($hwnd, [Win32HardwareOverlayNative]::GWL_EXSTYLE)
-                $style = $style -bor [Win32HardwareOverlayNative]::WS_EX_LAYERED -bor [Win32HardwareOverlayNative]::WS_EX_TRANSPARENT -bor [Win32HardwareOverlayNative]::WS_EX_TOOLWINDOW -bor [Win32HardwareOverlayNative]::WS_EX_NOACTIVATE
-                [void][Win32HardwareOverlayNative]::SetWindowLong($hwnd, [Win32HardwareOverlayNative]::GWL_EXSTYLE, $style)
-                })
-
-            $timer = New-Object Windows.Threading.DispatcherTimer
-            $timer.Interval = [TimeSpan]::FromMilliseconds($IntervalMs)
-
-            $timer.Add_Tick({
-                try {
-                    $snapshot = & $script:Monitor.GetSnapshot $Url
-                    $cells = & $script:Monitor.Layout $snapshot
-
-                    foreach ($cell in $cells) {
-                        if ($values.ContainsKey($cell.Title)) {
-                            $values[$cell.Title].Text = $cell.Value
-                            $values[$cell.Title].Foreground = $cell.Color
-                        }
-                    }
-                }
-                catch {
-                    foreach ($key in $values.Keys) {
-                        $values[$key].Text = "--"
-                        $values[$key].Foreground = "Red"
-                    }
-                }
-                })
-
-            $tray = New-Object System.Windows.Forms.NotifyIcon
-            $tray.Text = "Hardware Overlay"
-            $tray.Icon = [System.Drawing.SystemIcons]::Application
-            $tray.Visible = $true
-
-            $menu = New-Object System.Windows.Forms.ContextMenuStrip
-
-            $exitItem = New-Object System.Windows.Forms.ToolStripMenuItem
-            $exitItem.Text = "Exit"
-
-            $exitItem.Add_Click({
-                try { & $saveOverlayState } catch {}
-                try { $timer.Stop() } catch {}
+                $err = $_.Exception.Message
 
                 try {
-                    $tray.Visible = $false
-                    $tray.Dispose()
-                    } catch {}
+                    $window.Dispatcher.BeginInvoke([action]{
+                        & $debug "pipe err: $err" "Red"
+                    }) | Out-Null
+                } catch {}
 
-                    $window.Close()
-                    })
-
-            [void]$menu.Items.Add($exitItem)
-            $tray.ContextMenuStrip = $menu
-
-            $tray.Add_DoubleClick({
-                try { & $saveOverlayState } catch {}
-                try { $timer.Stop() } catch {}
+                Start-Sleep -Milliseconds 150
+            }
+            finally {
+                try { if ($reader) { $reader.Dispose() } } catch {}
+                try { if ($writer) { $writer.Dispose() } } catch {}
+                try { if ($server) { $server.Dispose() } } catch {}
 
                 try {
-                    $tray.Visible = $false
-                    $tray.Dispose()
-                    } catch {}
+                    $window.Dispatcher.BeginInvoke([action]{
+                        & $debug "pipe: disposed"
+                    }) | Out-Null
+                } catch {}
+            }
+        }
+    }).AddArgument($script:HardwareOverlayPipeName).
+      AddArgument($window).
+      AddArgument($handleOverlayCommand).
+      AddArgument($setDebug).
+      AddArgument($pipeCancel.Token)
 
-                    $window.Close()
-                    })
+    $pipeAsync = $pipePs.BeginInvoke()
 
-            $script:OverlayPipeStop = $false
+    $window.Add_Closed({
+        try { & $setDebug "window closed" "Red" } catch {}
+        try { & $saveOverlayState } catch {}
+        $script:OverlayPipeStop = $true
+        try { $pipeCancel.Cancel() } catch {}
+        try { $timer.Stop() } catch {}
+        try {
+            $tray.Visible = $false
+            $tray.Dispose()
+        } catch {}
+    })
 
-            $handleOverlayCommand = {
-                param($msg)
+    $timer.Start()
+    $window.ShowDialog() | Out-Null
 
-                & $setDebug "handle $($msg.command)" "Yellow"
+    try { $timer.Stop() } catch {}
+    try { $pipeCancel.Cancel() } catch {}
 
-                switch ($msg.command) {
-                    'Stop' {
-                        & $setDebug "stop: closing" "Red"
-                        try { & $saveOverlayState } catch {}
+    try {
+        if ($pipeAsync -and -not $pipeAsync.IsCompleted) {
+            [void]$pipeAsync.AsyncWaitHandle.WaitOne(1000)
+        }
+    } catch {}
 
-                        $script:OverlayPipeStop = $true
+    try {
+        if ($pipePs) {
+            if ($pipeAsync -and $pipeAsync.IsCompleted) {
+                $pipePs.EndInvoke($pipeAsync)
+            }
+            else {
+                $pipePs.Stop()
+            }
+            $pipePs.Dispose()
+        }
+    } catch {
+        try { $pipePs.Stop() } catch {}
+        try { $pipePs.Dispose() } catch {}
+    }
 
-                        try { $timer.Stop() } catch {}
+    try {
+        if ($pipeRunspace) {
+            $pipeRunspace.Close()
+            $pipeRunspace.Dispose()
+        }
+    } catch {}
 
-                        try {
-                            $tray.Visible = $false
-                            $tray.Dispose()
-                            } catch {}
+    try { $pipeCancel.Dispose() } catch {}
 
-                            $window.Close()
+    if ($NoRelaunch) {
+        [Environment]::Exit(0)
+    }
+}
 
-                            [System.Windows.Threading.Dispatcher]::CurrentDispatcher.BeginInvokeShutdown(
-                                [System.Windows.Threading.DispatcherPriority]::Background
-                                )
+Set-Alias ho Start-HardwareOverlay
+Set-Alias hoc Start-HardwareOverlayControl
+Set-Alias hos Send-HardwareOverlayCommand
 
-                            return
-                        }
-
-                        'Move' {
-                            & $setDebug "move dx=$($msg.dx) dy=$($msg.dy)" "Cyan"
-                            $window.Left += [int]$msg.dx
-                            $window.Top  += [int]$msg.dy
-                        }
-
-                        'Snap' {
-                            & $setDebug "snap $($msg.edge)" "Cyan"
-                            & $snapOverlay ([string]$msg.edge)
-                        }
-
-                        'FontDelta' {
-                            & $setDebug "font $($msg.delta)" "Cyan"
-                            & $applyFontDelta ([int]$msg.delta)
-                        }
-
-                        'Batch' {
-                            & $setDebug "batch dx=$($msg.dx) dy=$($msg.dy) font=$($msg.fontDelta)" "Cyan"
-
-                            if ([int]$msg.dx -ne 0) { $window.Left += [int]$msg.dx }
-                            if ([int]$msg.dy -ne 0) { $window.Top  += [int]$msg.dy }
-
-                            if ([int]$msg.fontDelta -ne 0) {
-                                & $applyFontDelta ([int]$msg.fontDelta)
-                            }
-                        }
-
-                        default {
-                            & $setDebug "unknown: $($msg.command)" "Red"
-                        }
-                    }
-                }
-
-                $pipeRunspace = [runspacefactory]::CreateRunspace()
-                $pipeRunspace.ApartmentState = 'MTA'
-                $pipeRunspace.ThreadOptions = 'ReuseThread'
-                $pipeRunspace.Open()
-
-                $pipePs = [powershell]::Create()
-                $pipePs.Runspace = $pipeRunspace
-                $pipeCancel = [System.Threading.CancellationTokenSource]::new()
-                $null = $pipePs.AddScript({
-                    param($pipeName, $window, $handler, $debug, $cancelToken)
-
-                    while (-not $cancelToken.IsCancellationRequested) {
-                        $server = $null
-                        $reader = $null
-                        $writer = $null
-
-                        try {
-                            $window.Dispatcher.BeginInvoke([action]{
-                                & $debug "pipe: creating"
-                                }) | Out-Null
-
-                            $server = [System.IO.Pipes.NamedPipeServerStream]::new(
-                                $pipeName,
-                                [System.IO.Pipes.PipeDirection]::InOut,
-                                1,
-                                [System.IO.Pipes.PipeTransmissionMode]::Byte,
-                                [System.IO.Pipes.PipeOptions]::Asynchronous
-                                )
-
-                            $window.Dispatcher.BeginInvoke([action]{
-                                & $debug "pipe: waiting"
-                                }) | Out-Null
-
-                            $task = $server.WaitForConnectionAsync($cancelToken)
-                            $task.GetAwaiter().GetResult()
-
-                            if ($cancelToken.IsCancellationRequested) {
-                                break
-                            }
-
-                            $window.Dispatcher.BeginInvoke([action]{
-                                & $debug "pipe: connected" "Lime"
-                                }) | Out-Null
-
-                            $reader = [System.IO.StreamReader]::new($server)
-                            $writer = [System.IO.StreamWriter]::new($server)
-                            $writer.AutoFlush = $true
-
-                            $raw = $reader.ReadLine()
-
-                            if ([string]::IsNullOrWhiteSpace($raw)) {
-                                $writer.WriteLine("EMPTY")
-                                continue
-                            }
-
-                            $msg = $raw | ConvertFrom-Json
-
-                            $writer.WriteLine("OK")
-
-                            $window.Dispatcher.Invoke([action]{
-                                & $handler $msg
-                                })
-
-                            if ($msg.command -eq "Stop") {
-                                break
-                            }
-                        }
-                        catch [System.OperationCanceledException] {
-                            break
-                        }
-                        catch {
-                            $err = $_.Exception.Message
-
-                            try {
-                                $window.Dispatcher.BeginInvoke([action]{
-                                    & $debug "pipe err: $err" "Red"
-                                    }) | Out-Null
-                                } catch {}
-
-                                Start-Sleep -Milliseconds 150
-                            }
-                            finally {
-                                try { if ($reader) { $reader.Dispose() } } catch {}
-                                try { if ($writer) { $writer.Dispose() } } catch {}
-                                try { if ($server) { $server.Dispose() } } catch {}
-
-                                try {
-                                    $window.Dispatcher.BeginInvoke([action]{
-                                        & $debug "pipe: disposed"
-                                        }) | Out-Null
-                                    } catch {}
-                                }
-                            }
-                            }).AddArgument($script:HardwareOverlayPipeName).
-                AddArgument($window).
-                AddArgument($handleOverlayCommand).
-                AddArgument($setDebug).
-                AddArgument($pipeCancel.Token)
-
-                $pipeAsync = $pipePs.BeginInvoke()
-
-                $window.Add_Closed({
-                    try { & $setDebug "window closed" "Red" } catch {}
-                    try { & $saveOverlayState } catch {}
-
-                    try { $pipeCancel.Cancel() } catch {}
-
-                    try { $timer.Stop() } catch {}
-
-                    try {
-                        $tray.Visible = $false
-                        $tray.Dispose()
-                        } catch {}
-                        })
-
-                $timer.Start()
-                $window.ShowDialog() | Out-Null
-
-                try { $timer.Stop() } catch {}
-
-                try { $pipeCancel.Cancel() } catch {}
-
-                try {
-                    if ($pipeAsync -and -not $pipeAsync.IsCompleted) {
-                        [void]$pipeAsync.AsyncWaitHandle.WaitOne(1000)
-                    }
-                    } catch {}
-
-                    try {
-                        if ($pipePs) {
-                            if ($pipeAsync -and $pipeAsync.IsCompleted) {
-                                $pipePs.EndInvoke($pipeAsync)
-                            }
-                            else {
-                                $pipePs.Stop()
-                            }
-
-                            $pipePs.Dispose()
-                        }
-                        } catch {
-                            try { $pipePs.Stop() } catch {}
-                            try { $pipePs.Dispose() } catch {}
-                        }
-
-                        try {
-                            if ($pipeRunspace) {
-                                $pipeRunspace.Close()
-                                $pipeRunspace.Dispose()
-                            }
-                            } catch {}
-
-                            try { $pipeCancel.Dispose() } catch {}
-                        }
-
-                        Set-Alias ho Start-HardwareOverlay
-                        Set-Alias hoc Start-HardwareOverlayControl
-                        Set-Alias hos Send-HardwareOverlayCommand
-
-                        Export-ModuleMember `
-                        -Function Start-HardwareLineMonitor, Start-HardwareOverlay, Send-HardwareOverlayCommand, Start-HardwareOverlayControl `
-                        -Alias ho, hoc, hos
+Export-ModuleMember `
+    -Function Start-HardwareLineMonitor, Start-HardwareOverlay, Send-HardwareOverlayCommand, Start-HardwareOverlayControl `
+    -Alias ho, hoc, hos
