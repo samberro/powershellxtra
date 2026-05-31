@@ -365,3 +365,74 @@ if (Get-Module PSReadLine) {
         return $true 
     }
 }
+
+function Monitor-Resources {
+    param([int] $wait = 500)
+    $ticker = "--", "\", "|", "/"
+    $i = 0
+    while ($true) {
+        $gpuRow = nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader,nounits
+        $gpu, $vramUsed, $vramTotal, $gpuTemp = ($gpuRow -split ',\s*')
+
+        $sharedBytes = try {
+            ((Get-Counter '\GPU Adapter Memory(*)\Shared Usage').CounterSamples |
+                Where-Object { $_.InstanceName -match 'nvidia|ven_' } |
+                Measure-Object CookedValue -Sum).Sum
+        } catch { 0 }
+
+
+        $sharedGb = $sharedBytes / 1GB
+        $hasShared = $sharedGb -gt 0.01
+
+         $ColorUsage = {
+            param($v)
+            if ($v -ge 90) { 'Red' }
+            elseif ($v -ge 70) { 'Yellow' }
+            elseif ($v -ge 20) { 'Green' }
+            else { 'Gray' }
+        }
+
+        $ColorTemp = {
+            param($v)
+            if ($null -eq $v) { 'Gray' }
+            elseif ($v -ge 85) { 'Red' }
+            elseif ($v -ge 75) { 'Yellow' }
+            elseif ($v -ge 50) { 'Green' }
+            else { 'Gray' }
+        }
+
+        $WritePart = {
+            param($text, $color = 'Gray') 
+            Write-Host $text -ForegroundColor $color -NoNewline
+            $script:written += $text.Length
+        }
+
+        $script:written = 0
+        Write-Host "`r" -NoNewline
+
+        & $WritePart "GPU: "
+        & $WritePart ("{0,3}%" -f [int]$gpu) (& $ColorUsage ([int]$gpu))
+
+        & $WritePart " | VRAM: "
+        & $WritePart ("{0:N2}GB" -f ([int]$vramUsed / 1024)) $(if ($hasShared) { 'Red' } else { 'Gray' })
+        # & $WritePart " / "
+        # & $WritePart ("{0:N2}GB" -f ([int]$vramTotal / 1024)) $(if ($hasShared) { 'Red' } else { 'Gray' })
+
+        if ($hasShared) {
+            & $WritePart (" (+{0:N2}GB shared)" -f $sharedGb) 'Red'
+        }
+
+        & $WritePart " | GTemp: "
+        & $WritePart ("{0}C" -f [int]$gpuTemp) (& $ColorTemp ([int]$gpuTemp))
+
+       
+        & $WritePart ("   {0}" -f $ticker[($i = ($i+1)%4)]) (& $ColorUsage $gpu)
+
+        Write-Host (" " * [Math]::Max(0, [Console]::WindowWidth - $script:written - 1)) -NoNewline
+        Start-Sleep -Milliseconds $wait
+    }
+}
+
+Set-Alias mr Monitor-Resources
+
+Import-Module HardwareMonitor -Force
