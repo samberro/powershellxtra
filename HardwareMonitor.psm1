@@ -2,6 +2,7 @@
 
 $script:HardwareOverlayPipeName = "HardwareMonitorOverlay-$env:USERNAME"
 $script:HardwareOverlayStatePath = Join-Path $env:LOCALAPPDATA "HardwareMonitorOverlay\state.json"
+$script:HardwareOverlayPidPath = Join-Path $env:LOCALAPPDATA "HardwareMonitorOverlay\overlay.pid"
 
 $script:OverlayDebugText = "idle"
 $script:OverlayDebugColor = "DarkGray"
@@ -245,6 +246,31 @@ function Save-HardwareOverlayState {
     } | ConvertTo-Json | Set-Content -Encoding UTF8 $script:HardwareOverlayStatePath
 }
 
+function Write-HardwareOverlayPid {
+    param([int]$ProcessId = $PID)
+
+    try {
+        $dir = Split-Path $script:HardwareOverlayPidPath
+        New-Item -ItemType Directory -Force $dir | Out-Null
+        [string]$ProcessId | Set-Content -Encoding ASCII $script:HardwareOverlayPidPath
+    }
+    catch {}
+}
+
+function Clear-HardwareOverlayPid {
+    param([int]$ProcessId = $PID)
+
+    try {
+        if (-not (Test-Path $script:HardwareOverlayPidPath)) { return }
+
+        $stored = [int](Get-Content $script:HardwareOverlayPidPath -Raw)
+        if ($stored -eq $ProcessId) {
+            Remove-Item $script:HardwareOverlayPidPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+    catch {}
+}
+
 function Start-LibreHardwareMonitorIfNeeded {
     param(
         [string]$Url = $script:Monitor.Url,
@@ -362,6 +388,42 @@ function Send-HardwareOverlayCommand {
     }
 }
 
+function Stop-HardwareOverlayProcess {
+    param(
+        [int]$TimeoutMs = 300,
+        [switch]$NoGraceful
+    )
+
+    if (-not $NoGraceful) {
+        try {
+            Send-HardwareOverlayCommand -Command Stop -TimeoutMs $TimeoutMs
+            Start-Sleep -Milliseconds 300
+        }
+        catch {}
+    }
+
+    $pidValue = $null
+
+    try {
+        if (Test-Path $script:HardwareOverlayPidPath) {
+            $pidValue = [int](Get-Content $script:HardwareOverlayPidPath -Raw)
+        }
+    }
+    catch {}
+
+    if ($pidValue) {
+        try {
+            $proc = Get-Process -Id $pidValue -ErrorAction SilentlyContinue
+            if ($proc) {
+                Stop-Process -Id $pidValue -Force
+            }
+        }
+        catch {}
+    }
+
+    try { Remove-Item $script:HardwareOverlayPidPath -Force -ErrorAction SilentlyContinue } catch {}
+}
+
 function Start-HardwareOverlayControl {
     param(
         [int]$MoveStep = 10,
@@ -471,31 +533,41 @@ function Start-HardwareOverlay {
         [switch]$NoRelaunch
     )
 
-    if ([Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
-        if ($NoRelaunch) {
-            throw "Start overlay with: pwsh -STA"
-        }
-
+    if (-not $NoRelaunch) {
         $safe = if ($SafeMode) { ' -SafeMode' } else { '' }
+        $modulePath = if ($PSCommandPath) { $PSCommandPath } else { Join-Path $PSScriptRoot 'HardwareMonitor.psm1' }
+        $modulePathEscaped = $modulePath.Replace("'", "''")
+        $urlEscaped = $Url.Replace("'", "''")
 
         $cmd = @"
-Import-Module HardwareMonitor -Force
-Start-HardwareOverlay -Url '$Url' -IntervalMs $IntervalMs -Left $Left -Top $Top -Opacity $Opacity -LabelFontSize $LabelFontSize -ValueFontSize $ValueFontSize -NoRelaunch$safe
+Import-Module '$modulePathEscaped' -Force
+Start-HardwareOverlay -Url '$urlEscaped' -IntervalMs $IntervalMs -Left $Left -Top $Top -Opacity $Opacity -LabelFontSize $LabelFontSize -ValueFontSize $ValueFontSize -NoRelaunch$safe
 "@
 
-        Start-Process pwsh `
+        $proc = Start-Process pwsh `
             -WindowStyle Hidden `
+            -PassThru `
             -ArgumentList @(
                 '-STA',
                 '-NoLogo',
                 '-NoProfile',
+                '-NonInteractive',
                 '-Command',
                 $cmd
             )
 
+        if ($proc) {
+            Write-HardwareOverlayPid -ProcessId $proc.Id
+        }
+
         return
     }
 
+    if ([Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
+        throw "Start overlay with: pwsh -STA"
+    }
+
+    Write-HardwareOverlayPid -ProcessId $PID
     Start-LibreHardwareMonitorIfNeeded -Url $Url
 
     if (-not $SafeMode) {
@@ -648,7 +720,7 @@ public static class Win32HardwareOverlayNative {
         }
     }
 
-    & $setDebug "overlay started" "Lime"
+    & $setDebug "overlay started pid=$PID" "Lime"
 
     $saveOverlayState = {
         try {
@@ -941,6 +1013,7 @@ public static class Win32HardwareOverlayNative {
             $tray.Visible = $false
             $tray.Dispose()
         } catch {}
+        Clear-HardwareOverlayPid -ProcessId $PID
     })
 
     $timer.Start()
@@ -978,6 +1051,7 @@ public static class Win32HardwareOverlayNative {
     } catch {}
 
     try { $pipeCancel.Dispose() } catch {}
+    Clear-HardwareOverlayPid -ProcessId $PID
 
     if ($NoRelaunch) {
         [Environment]::Exit(0)
@@ -987,7 +1061,8 @@ public static class Win32HardwareOverlayNative {
 Set-Alias ho Start-HardwareOverlay
 Set-Alias hoc Start-HardwareOverlayControl
 Set-Alias hos Send-HardwareOverlayCommand
+Set-Alias hok Stop-HardwareOverlayProcess
 
 Export-ModuleMember `
-    -Function Start-HardwareLineMonitor, Start-HardwareOverlay, Send-HardwareOverlayCommand, Start-HardwareOverlayControl `
-    -Alias ho, hoc, hos
+    -Function Start-HardwareLineMonitor, Start-HardwareOverlay, Send-HardwareOverlayCommand, Start-HardwareOverlayControl, Stop-HardwareOverlayProcess `
+    -Alias ho, hoc, hos, hok
