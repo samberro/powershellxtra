@@ -1,0 +1,98 @@
+name: PowerShell Tests
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show PowerShell version
+        shell: pwsh
+        run: |
+          $PSVersionTable | Format-List *
+
+      - name: Parse module
+        shell: pwsh
+        run: |
+          $modulePath = Join-Path $PWD 'HardwareMonitor.psm1'
+          $tokens = $null
+          $errors = $null
+
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            $modulePath,
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+
+          if ($errors -and $errors.Count -gt 0) {
+            $errors | Format-List * -Force
+            throw "PowerShell parser found $($errors.Count) error(s)."
+          }
+
+          Write-Host "Parser check passed."
+
+      - name: Import module and verify exports
+        shell: pwsh
+        run: |
+          $modulePath = Join-Path $PWD 'HardwareMonitor.psm1'
+          Import-Module $modulePath -Force -ErrorAction Stop
+
+          $expectedCommands = @(
+            'Start-HardwareLineMonitor',
+            'Start-HardwareOverlay',
+            'Send-HardwareOverlayCommand',
+            'Start-HardwareOverlayControl'
+          )
+
+          foreach ($name in $expectedCommands) {
+            $cmd = Get-Command $name -ErrorAction Stop
+            Write-Host "Found command: $($cmd.Name)"
+          }
+
+          $expectedAliases = @('ho', 'hoc', 'hos')
+
+          foreach ($name in $expectedAliases) {
+            $alias = Get-Alias $name -ErrorAction Stop
+            Write-Host "Found alias: $($alias.Name) -> $($alias.Definition)"
+          }
+
+      - name: Compile WPF/native helper path without launching overlay
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName PresentationFramework
+          Add-Type -AssemblyName PresentationCore
+          Add-Type -AssemblyName WindowsBase
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type -AssemblyName System.Drawing
+
+          Add-Type @"
+          using System;
+          using System.Runtime.InteropServices;
+
+          public static class Win32HardwareOverlayNativeTest {
+              public const int GWL_EXSTYLE = -20;
+              public const int WS_EX_TRANSPARENT = 0x00000020;
+              public const int WS_EX_LAYERED = 0x00080000;
+              public const int WS_EX_TOOLWINDOW = 0x00000080;
+              public const int WS_EX_NOACTIVATE = 0x08000000;
+
+              [DllImport("user32.dll")]
+              public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+              [DllImport("user32.dll")]
+              public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+          }
+          "@
+
+          Write-Host "WPF/native helper compile check passed."
